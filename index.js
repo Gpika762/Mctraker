@@ -1,120 +1,113 @@
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const app = express();
 const port = process.env.PORT || 10000;
 
-// Estado inicial
-let estadoCajita = {
-    nombre: "Sincronizando...",
+// VARIABLES DE ESTADO
+let estadoCajita = { 
+    nombre: "Buscando en la red...", 
     progreso: "0",
-    metodo: "Auto"
+    fuente: "Ninguna"
 };
 
-let historial = [];
+let coleccionesHistoricas = []; // Aquí guardaremos los nombres de Fandom
 
-// Función para consultar la API de McDonald's (Arcos Dorados)
-async function consultarAPI() {
+// --- 1. BUSCADOR DE EVENTO ACTUAL (Tu código mejorado) ---
+async function buscarEventoActual() {
     try {
-        // Endpoint dinámico para Chile (puedes ajustar el país CL/AR/MX)
-        const response = await axios.get('https://cache-backend-mcd.mcdonalds.com/api/v1/content-service/cl/happymeal', {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 5000
+        const urlBusqueda = 'https://www.google.com/search?q=cajita+feliz+mcdonalds+chile+mayo+2026';
+        const { data } = await axios.get(urlBusqueda, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
-
-        if (response.data && response.data.data) {
-            // Intentamos extraer el nombre de la promoción actual
-            const promo = response.data.data[0]; 
-            estadoCajita.nombre = promo.title || "Colección Nueva";
+        const $ = cheerio.load(data);
+        let resultados = [];
+        $('h3').each((i, el) => {
+            let texto = $(el).text();
+            if (texto.toLowerCase().includes('cajita') || texto.toLowerCase().includes('juguetes')) {
+                resultados.push(texto);
+            }
+        });
+        if (resultados.length > 0) {
+            let detectado = resultados[0].split('-')[0].split('|')[0].trim();
+            estadoCajita.nombre = detectado.substring(0, 25);
             estadoCajita.progreso = "100";
-            estadoCajita.metodo = "API Automática";
-            console.log(`[AUTO]: Detectado ${estadoCajita.nombre}`);
+            estadoCajita.fuente = "Google News Search";
         }
     } catch (error) {
-        console.log("[ERROR API]: No se pudo obtener datos automáticamente.");
-        // Si falla, no sobreescribimos para no borrar lo que haya puesto el usuario manualmente
+        console.log("Error buscando evento actual.");
     }
 }
 
-// Consultar cada 1 hora automáticamente
-setInterval(consultarAPI, 3600000);
-consultarAPI();
+// --- 2. BUSCADOR DE COLECCIONES ANTIGUAS (Fandom) ---
+async function cargarHistorialFandom() {
+    try {
+        const { data } = await axios.get('https://kidsmeal.fandom.com/wiki/McDonald%27s_Happy_Meal_(USA)/List_of_toys', {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const $ = cheerio.load(data);
+        let listaTemp = [];
+        
+        // Buscamos en las tablas de la wiki (las celdas que tienen enlaces b a)
+        $('table.wikitable b a').each((i, el) => {
+            let item = $(el).text().trim();
+            if (item && !listaTemp.includes(item)) {
+                listaTemp.push(item);
+            }
+            return i < 49; // Traemos 50 máximo para no saturar la memoria del LG
+        });
+        
+        coleccionesHistoricas = listaTemp;
+        console.log(`[HISTORIA]: ${coleccionesHistoricas.length} items cargados.`);
+    } catch (error) {
+        console.log("Error cargando Fandom.");
+    }
+}
 
-// Middleware de Logs
-app.use((req, res, next) => {
-    const log = {
-        hora: new Date().toLocaleTimeString(),
-        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-        ruta: req.url,
-        userAgent: req.headers['user-agent'] || 'Desconocido'
-    };
-    historial.unshift(log);
-    if (historial.length > 15) historial.pop();
-    next();
-});
+// Ejecutar rastreos al iniciar y luego por intervalo
+setInterval(buscarEventoActual, 7200000); // Cada 2 horas
+setInterval(cargarHistorialFandom, 86400000); // Cada 24 horas (el historial no cambia tanto)
+buscarEventoActual();
+cargarHistorialFandom();
 
-// --- RUTA PARA EL LG T310i ---
+// --- RUTAS PARA EL LG JAVA ---
+
+// Lo que ve el LG en la pantalla principal
 app.get('/status', (req, res) => {
     res.set('Content-Type', 'text/plain');
     res.send(`${estadoCajita.nombre}|${estadoCajita.progreso}`);
 });
 
-// --- PANEL DE CONTROL (UPDATE MANUAL) ---
-app.get('/update', (req, res) => {
-    const { n, p } = req.query;
-    if (n) {
-        estadoCajita.nombre = n.replace(/_/g, ' ');
-        estadoCajita.metodo = "Manual";
-    }
-    if (p) estadoCajita.progreso = p;
-    res.send(`OK: LG mostrará ${estadoCajita.nombre}`);
+// Nueva ruta para que el LG descargue la lista histórica
+app.get('/history', (req, res) => {
+    res.set('Content-Type', 'text/plain');
+    // Mandamos todo separado por un caracter especial para el split en Java
+    // Usamos ";" porque los nombres de juguetes pueden tener comas
+    res.send(coleccionesHistoricas.join(';'));
 });
 
 // --- DEBUGGER MEJORADO ---
 app.get('/debug', (req, res) => {
-    let logsHtml = historial.map(l => `
-        <div style="border-bottom: 1px solid #eee; padding: 10px; font-family: monospace; font-size: 12px;">
-            <span style="color: #888;">[${l.hora}]</span> 
-            <b style="color: #d32f2f;">${l.ip}</b> -> 
-            <span style="background: #e3f2fd; padding: 2px 5px; border-radius: 3px;">${l.ruta}</span>
-            <br><small style="color: #999;">${l.userAgent}</small>
-        </div>
-    `).join('');
-
+    let listaHtml = coleccionesHistoricas.map(item => `<li>${item}</li>`).join('');
     res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>McTracker Debugger</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-                body { font-family: -apple-system, sans-serif; background: #f4f4f9; margin: 0; padding: 20px; }
-                .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
-                .status-badge { display: inline-block; padding: 5px 10px; border-radius: 20px; background: #ffc107; color: black; font-weight: bold; }
-                .btn { display: inline-block; background: #d32f2f; color: white; padding: 10px 15px; border-radius: 8px; text-decoration: none; margin-top: 10px; }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1 style="margin-top:0; color:#d32f2f;">🍟 McTracker Proxy</h1>
-                <p><strong>Evento Actual:</strong> <span style="font-size: 1.2em; color: #333;">${estadoCajita.nombre}</span></p>
-                <p><strong>Progreso:</strong> ${estadoCajita.progreso}%</p>
-                <p><strong>Modo:</strong> <span class="status-badge">${estadoCajita.metodo}</span></p>
-                <a href="/status" class="btn">Ver texto plano (LG)</a>
+        <body style="font-family:sans-serif; background:#f4f4f4; padding:20px; text-align:center;">
+            <h1 style="color:#d32f2f;">🍟 McTracker Proxy Server</h1>
+            
+            <div style="background:white; padding:20px; border-radius:15px; display:inline-block; border:2px solid red; margin-bottom:20px;">
+                <h2>Evento Actual: ${estadoCajita.nombre}</h2>
+                <p>Progreso: ${estadoCajita.progreso}% | Fuente: ${estadoCajita.fuente}</p>
             </div>
 
-            <div class="card">
-                <h3>🛰️ Historial de Conexiones</h3>
-                <div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px;">
-                    ${logsHtml || '<p style="padding:10px;">Esperando conexiones...</p>'}
-                </div>
+            <div style="background:white; padding:20px; border-radius:15px; max-width:500px; margin:0 auto; border:2px solid gold;">
+                <h3>📜 Historial (Fandom Wiki)</h3>
+                <ul style="text-align:left; height:200px; overflow-y:scroll;">
+                    ${listaHtml || 'Cargando historia...'}
+                </ul>
             </div>
-            
-            <p style="text-align:center; color:#999; font-size:12px;">McTracker para LG T310i - 2026</p>
+            <br>
+            <a href="/status">Ver /status</a> | <a href="/history">Ver /history</a>
         </body>
-        </html>
     `);
 });
 
-app.listen(port, () => {
-    console.log(`Servidor corriendo en puerto ${port}`);
-});
+app.listen(port, () => console.log(`Servidor de Coleccionismo Activo`));
