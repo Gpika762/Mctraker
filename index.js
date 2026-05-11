@@ -11,9 +11,9 @@ let estadoCajita = {
     fuente: "Ninguna"
 };
 
-let coleccionesHistoricas = []; // Aquí guardaremos los nombres de Fandom
+let coleccionesHistoricas = []; 
 
-// --- 1. BUSCADOR DE EVENTO ACTUAL (Tu código mejorado) ---
+// --- 1. BUSCADOR DE EVENTO ACTUAL ---
 async function buscarEventoActual() {
     try {
         const urlBusqueda = 'https://www.google.com/search?q=cajita+feliz+mcdonalds+chile+mayo+2026';
@@ -48,13 +48,12 @@ async function cargarHistorialFandom() {
         const $ = cheerio.load(data);
         let listaTemp = [];
         
-        // Buscamos en las tablas de la wiki (las celdas que tienen enlaces b a)
         $('table.wikitable b a').each((i, el) => {
             let item = $(el).text().trim();
             if (item && !listaTemp.includes(item)) {
                 listaTemp.push(item);
             }
-            return i < 49; // Traemos 50 máximo para no saturar la memoria del LG
+            return i < 49; 
         });
         
         coleccionesHistoricas = listaTemp;
@@ -64,49 +63,78 @@ async function cargarHistorialFandom() {
     }
 }
 
-// Ejecutar rastreos al iniciar y luego por intervalo
-setInterval(buscarEventoActual, 7200000); // Cada 2 horas
-setInterval(cargarHistorialFandom, 86400000); // Cada 24 horas (el historial no cambia tanto)
+setInterval(buscarEventoActual, 7200000); 
+setInterval(cargarHistorialFandom, 86400000); 
 buscarEventoActual();
 cargarHistorialFandom();
 
 // --- RUTAS PARA EL LG JAVA ---
 
-// Lo que ve el LG en la pantalla principal
 app.get('/status', (req, res) => {
     res.set('Content-Type', 'text/plain');
     res.send(`${estadoCajita.nombre}|${estadoCajita.progreso}`);
 });
 
-// Nueva ruta para que el LG descargue la lista histórica
 app.get('/history', (req, res) => {
     res.set('Content-Type', 'text/plain');
-    // Mandamos todo separado por un caracter especial para el split en Java
-    // Usamos ";" porque los nombres de juguetes pueden tener comas
-    res.send(coleccionesHistoricas.join(';'));
+    res.send(coleccionesHistoricas.length > 0 ? coleccionesHistoricas.join(';') : "Cargando historia...");
 });
 
-// --- DEBUGGER MEJORADO ---
+// --- RUTA DE EMERGENCIA (Para cambiar el nombre manualmente si Google falla) ---
+app.get('/update', (req, res) => {
+    const { n, p } = req.query;
+    if (n) {
+        estadoCajita.nombre = n.replace(/_/g, ' ');
+        estadoCajita.fuente = "Manual Update";
+    }
+    if (p) estadoCajita.progreso = p;
+    res.send(`OK: LG mostrará ${estadoCajita.nombre}`);
+});
+
+// --- DEBUGGER PRO ---
 app.get('/debug', (req, res) => {
     let listaHtml = coleccionesHistoricas.map(item => `<li>${item}</li>`).join('');
     res.send(`
-        <body style="font-family:sans-serif; background:#f4f4f4; padding:20px; text-align:center;">
-            <h1 style="color:#d32f2f;">🍟 McTracker Proxy Server</h1>
-            
-            <div style="background:white; padding:20px; border-radius:15px; display:inline-block; border:2px solid red; margin-bottom:20px;">
-                <h2>Evento Actual: ${estadoCajita.nombre}</h2>
-                <p>Progreso: ${estadoCajita.progreso}% | Fuente: ${estadoCajita.fuente}</p>
-            </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>McTracker Debugger</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+                .container { max-width: 600px; margin: auto; }
+                .card { background: white; border-radius: 15px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; border-top: 5px solid #d32f2f; }
+                .history-card { border-top-color: #ffbc0d; }
+                h1 { color: #d32f2f; font-size: 24px; }
+                ul { text-align: left; height: 150px; overflow-y: scroll; background: #fafafa; border: 1px solid #ddd; padding: 10px; border-radius: 10px; list-style: none; }
+                li { padding: 5px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+                .btn { display: inline-block; padding: 10px 20px; background: #d32f2f; color: white; text-decoration: none; border-radius: 10px; font-weight: bold; margin: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🍟 McTracker Proxy</h1>
+                
+                <div class="card">
+                    <h3>Evento Actual</h3>
+                    <p style="font-size: 22px; margin: 10px 0;"><b>${estadoCajita.nombre}</b></p>
+                    <p>Progreso: <b>${estadoCajita.progreso}%</b></p>
+                    <small>Fuente: ${estadoCajita.fuente}</small>
+                </div>
 
-            <div style="background:white; padding:20px; border-radius:15px; max-width:500px; margin:0 auto; border:2px solid gold;">
-                <h3>📜 Historial (Fandom Wiki)</h3>
-                <ul style="text-align:left; height:200px; overflow-y:scroll;">
-                    ${listaHtml || 'Cargando historia...'}
-                </ul>
+                <div class="card history-card">
+                    <h3>📜 Museo (Fandom Wiki)</h3>
+                    <p>Total items: ${coleccionesHistoricas.length}</p>
+                    <ul>${listaHtml || '<li>Cargando...</li>'}</ul>
+                </div>
+
+                <div class="links">
+                    <a href="/status" class="btn">/status</a>
+                    <a href="/history" class="btn" style="background:#ffbc0d; color:black;">/history</a>
+                </div>
             </div>
-            <br>
-            <a href="/status">Ver /status</a> | <a href="/history">Ver /history</a>
         </body>
+        </html>
     `);
 });
 
