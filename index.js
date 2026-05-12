@@ -42,51 +42,40 @@ async function buscarEventoActual() {
 // --- 2. BUSCADOR DE COLECCIONES ANTIGUAS (Fandom) ---
 async function cargarHistorialFandom() {
     try {
-        console.log("Intentando bypass para Fandom...");
+        console.log("Conectando a la API de Fandom...");
         
-        // Intentamos usar un servicio de proxy gratuito para saltar el 403
-        const urlProxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://kidsmeal.fandom.com/wiki/McDonald%27s_Happy_Meal_(USA)/List_of_toys');
+        // Usamos la API interna de MediaWiki de Fandom
+        // Esto pide los enlaces de la página de la lista de juguetes
+        const apiUrl = 'https://kidsmeal.fandom.com/api.php?action=parse&page=McDonald%27s_Happy_Meal_(USA)/List_of_toys&prop=links&format=json&origin=*';
         
-        const response = await axios.get(urlProxy, { timeout: 15000 });
-        const data = response.data.contents; // AllOrigins devuelve el HTML dentro de 'contents'
-
-        const $ = cheerio.load(data);
-        let listaTemp = [];
-        
-        $('table.wikitable b a').each((i, el) => {
-            let item = $(el).text().trim();
-            if (item && item.length > 2) listaTemp.push(item);
-            return i < 59; 
+        const response = await axios.get(apiUrl, {
+            headers: { 'User-Agent': 'McTrackerBot/1.0 (Contacto: tu@email.com)' }
         });
 
-        if (listaTemp.length > 0) {
-            coleccionesHistoricas = listaTemp;
-            console.log("¡Bypass exitoso! Historia cargada.");
-        } else {
-            throw new Error("HTML vacío");
+        if (response.data && response.data.parse) {
+            const links = response.data.parse.links;
+            let listaTemp = [];
+
+            // Filtramos solo los links que parecen colecciones (suelen tener el año)
+            links.forEach(link => {
+                let nombre = link['*'];
+                // Filtramos cosas que no son juguetes (archivos, categorías, etc)
+                if (nombre.includes('(') && !nombre.includes(':')) {
+                    listaTemp.push(nombre);
+                }
+            });
+
+            if (listaTemp.length > 0) {
+                coleccionesHistoricas = listaTemp.slice(0, 100); // 100 para que el LG tenga mucho que leer
+                console.log(`[HISTORIA]: ${coleccionesHistoricas.length} colecciones reales cargadas vía API.`);
+                return;
+            }
         }
+        throw new Error("API no devolvió datos válidos");
 
     } catch (error) {
-        console.log("Fandom bloqueado totalmente. Activando Lista de Respaldo Local.");
-        
-        // LISTA DE RESPALDO (Los mejores juguetes de la historia para tu LG)
-        coleccionesHistoricas = [
-            "Super Mario 3 (1990)",
-            "Pokemon Advanced (2005)",
-            "Star Wars Episode III",
-            "Beanie Babies (1997)",
-            "Hot Wheels 1999",
-            "Disney 100 Years",
-            "Spider-Man 2 (2004)",
-            "Hello Kitty 40th",
-            "Batman Animated Series",
-            "Yu-Gi-Oh! (2002)",
-            "Shrek 2 (2004)",
-            "Sonic the Hedgehog",
-            "Minions (2015)",
-            "Adventure Time",
-            "Power Rangers (1995)"
-        ];
+        console.log("Error en API Fandom: " + error.message);
+        // Mantenemos la lista de respaldo solo por seguridad extrema
     }
 }
 setInterval(buscarEventoActual, 7200000); 
