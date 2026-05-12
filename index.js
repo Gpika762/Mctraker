@@ -42,27 +42,37 @@ async function buscarEventoActual() {
 // --- 2. BUSCADOR DE COLECCIONES ANTIGUAS (Fandom) ---
 async function cargarHistorialFandom() {
     try {
+        console.log("Intentando conectar con Fandom...");
         const { data } = await axios.get('https://kidsmeal.fandom.com/wiki/McDonald%27s_Happy_Meal_(USA)/List_of_toys', {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html'
+            },
+            timeout: 10000 // Le damos 10 segundos para responder
         });
+
         const $ = cheerio.load(data);
         let listaTemp = [];
         
-        $('table.wikitable b a').each((i, el) => {
+        // Selector mejorado para las tablas de Fandom
+        $('table.wikitable tr td b a, table.wikitable tr td a b').each((i, el) => {
             let item = $(el).text().trim();
-            if (item && !listaTemp.includes(item)) {
+            if (item && item.length > 2 && !listaTemp.includes(item)) {
                 listaTemp.push(item);
             }
-            return i < 49; 
+            return i < 60; // Traemos 60 para el LG
         });
-        
-        coleccionesHistoricas = listaTemp;
-        console.log(`[HISTORIA]: ${coleccionesHistoricas.length} items cargados.`);
+
+        if (listaTemp.length > 0) {
+            coleccionesHistoricas = listaTemp;
+            console.log(`[HISTORIA]: ${coleccionesHistoricas.length} colecciones cargadas con éxito.`);
+        } else {
+            console.log("No se encontraron juguetes en las tablas. Revisa el selector.");
+        }
     } catch (error) {
-        console.log("Error cargando Fandom.");
+        console.log("Error detallado en Fandom: " + error.message);
     }
 }
-
 setInterval(buscarEventoActual, 7200000); 
 setInterval(cargarHistorialFandom, 86400000); 
 buscarEventoActual();
